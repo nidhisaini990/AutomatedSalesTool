@@ -50,6 +50,7 @@ class LeadOut(APIModel):
     company: str
     job_title: str
     website: str | None
+    confidence: int
     status: str
     source: str
     source_record_id: str
@@ -63,13 +64,20 @@ class LeadOut(APIModel):
     updated_at: datetime
 
 
-class DiscoveryOut(BaseModel):
-    mock: bool = True
+class LeadBatchOut(BaseModel):
     provider: str
-    message: str
     created: int
     existing: int
     leads: list[LeadOut]
+
+
+class DiscoveryOut(LeadBatchOut):
+    mock: bool = True
+    message: str
+
+
+class LeadImportOut(LeadBatchOut):
+    pass
 
 
 class EnrichmentOut(BaseModel):

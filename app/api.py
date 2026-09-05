@@ -1,8 +1,15 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import csv
+import io
+from dataclasses import dataclass
+from hashlib import sha256
+from typing import Annotated
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -34,6 +41,7 @@ from app.schemas import (
     FollowUpCreate,
     FollowUpOut,
     LeadOut,
+    LeadImportOut,
     ReplyCreate,
     ReplyCreateOut,
     ReplyOut,
@@ -51,6 +59,18 @@ bearer = HTTPBearer()
 discovery_provider = MockDiscoveryProvider()
 enrichment_provider = MockEnrichmentProvider()
 email_provider = MockEmailProvider()
+INTERNAL_CSV_SOURCE = "internal-csv"
+MAX_CSV_BYTES = 2 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class CsvLeadRow:
+    row_number: int
+    values: dict[str, str]
+    email: str
+    website: str | None
+    domain: str
+    confidence: int
 
 
 def current_user(
@@ -85,6 +105,30 @@ def lead_for_workspace(lead_id: str, workspace: Workspace, db: Session) -> Lead:
     if lead is None or lead.workspace_id != workspace.id:
         raise HTTPException(status_code=404, detail="Lead not found")
     return lead
+
+
+def normalized_email(value: str) -> str:
+    email = value.strip().lower()
+    if email.count("@") != 1 or email.startswith("@") or email.endswith("@"):
+        raise ValueError("email must be a valid email address")
+    return email
+
+
+def normalized_domain(website: str | None, email: str) -> str:
+    candidate = (website or "").strip()
+    if candidate:
+        parsed = urlparse(candidate if "://" in candidate else f"https://{candidate}")
+        if parsed.hostname:
+            return parsed.hostname.lower().rstrip(".")
+    return email.rsplit("@", 1)[1].lower()
+
+
+def approved_source_url(value: str) -> str:
+    source_url = value.strip()
+    parsed = urlparse(source_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("source_url must be an absolute HTTP(S) URL")
+    return source_url
 
 
 @router.post("/auth/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
@@ -191,6 +235,134 @@ def discover_leads(
         created=created,
         existing=existing,
         leads=leads,
+    )
+
+
+@router.post("/workspaces/{workspace_id}/leads/import", response_model=LeadImportOut)
+async def import_leads_csv(
+    workspace_id: str,
+    file: Annotated[UploadFile, File(description="UTF-8 CSV lead export")],
+    source_url: Annotated[str, Form(max_length=2_000)],
+    query: Annotated[str | None, Form(max_length=200)] = None,
+    icp: Annotated[str | None, Form(max_length=500)] = None,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> LeadImportOut:
+    """Import user-supplied lead data without contacting or inventing external sources."""
+    workspace_for_user(workspace_id, user, db)
+    try:
+        source_url = approved_source_url(source_url)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=422, detail="A .csv file is required")
+
+    content = await file.read(MAX_CSV_BYTES + 1)
+    if len(content) > MAX_CSV_BYTES:
+        raise HTTPException(status_code=413, detail="CSV upload exceeds the 2 MiB limit")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise HTTPException(status_code=422, detail="CSV must be UTF-8 encoded") from error
+    if "\x00" in text:
+        raise HTTPException(status_code=422, detail="CSV contains invalid null bytes")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=422, detail="CSV must include a header row")
+    headers = {header.strip().lower() for header in reader.fieldnames if header}
+    if "email" not in headers:
+        raise HTTPException(status_code=422, detail="CSV must include an email column")
+
+    rows: list[CsvLeadRow] = []
+    try:
+        for row_number, raw_row in enumerate(reader, start=2):
+            if None in raw_row:
+                raise ValueError("contains more values than the header row")
+            row = {(key or "").strip().lower(): (value or "").strip() for key, value in raw_row.items()}
+            if not any(row.values()):
+                continue
+            email = normalized_email(row.get("email", ""))
+            website = row.get("website") or row.get("url") or None
+            try:
+                confidence = int(row.get("confidence", "100"))
+            except ValueError as error:
+                raise ValueError("confidence must be a whole number between 0 and 100") from error
+            if not 0 <= confidence <= 100:
+                raise ValueError("confidence must be between 0 and 100")
+            rows.append(
+                CsvLeadRow(
+                    row_number=row_number,
+                    values=row,
+                    email=email,
+                    website=website,
+                    domain=normalized_domain(website, email),
+                    confidence=confidence,
+                )
+            )
+    except (ValueError, csv.Error) as error:
+        raise HTTPException(status_code=422, detail=f"Invalid CSV row {row_number}: {error}") from error
+    if not rows:
+        raise HTTPException(status_code=422, detail="CSV does not contain any lead rows")
+
+    leads: list[Lead] = []
+    created_leads: list[Lead] = []
+    created = existing = 0
+    seen_emails: set[str] = set()
+    emails = {row.email for row in rows}
+    existing_by_email = {
+        lead.email.strip().lower(): lead
+        for lead in db.scalars(
+            select(Lead).where(
+                Lead.workspace_id == workspace_id,
+                func.lower(func.trim(Lead.email)).in_(emails),
+            )
+        )
+    }
+    for row in rows:
+        if row.email in seen_emails:
+            existing += 1
+            continue
+        seen_emails.add(row.email)
+        lead = existing_by_email.get(row.email)
+        if lead is not None:
+            existing += 1
+            leads.append(lead)
+            continue
+        record_id = sha256(f"{source_url}|{row.email}".encode()).hexdigest()
+        lead = Lead(
+            workspace_id=workspace_id,
+            first_name=row.values.get("first_name", ""),
+            last_name=row.values.get("last_name", ""),
+            email=row.email,
+            company=row.values.get("company", ""),
+            job_title=row.values.get("job_title", "") or row.values.get("title", ""),
+            website=row.website,
+            source=INTERNAL_CSV_SOURCE,
+            source_record_id=record_id,
+            provenance=[{
+                "provider": INTERNAL_CSV_SOURCE,
+                "source_url": source_url,
+                "source_record_id": record_id,
+                "normalized_email": row.email,
+                "normalized_domain": row.domain,
+                "confidence": row.confidence,
+                "row_number": row.row_number,
+                "query": query.strip() if query else None,
+                "icp": icp.strip() if icp else None,
+                "approved_internal_source": True,
+            }],
+        )
+        lead.score, lead.score_explanation = score_lead(lead)
+        db.add(lead)
+        leads.append(lead)
+        created_leads.append(lead)
+        created += 1
+    db.commit()
+    for lead in created_leads:
+        db.refresh(lead)
+    return LeadImportOut(
+        provider=INTERNAL_CSV_SOURCE, created=created, existing=existing, leads=leads
     )
 
 

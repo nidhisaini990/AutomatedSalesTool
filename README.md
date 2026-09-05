@@ -10,6 +10,7 @@ make **no external network calls**.
 - UUID primary keys and UTC creation/update timestamps on all domain records
 - Workspace membership checks on every workspace resource
 - Mock discovery with source IDs and provenance; mock enrichment and email provider interfaces
+- CSV import from approved internal lead-data sources, retaining source URL, confidence, and query/ICP provenance
 - Deterministic lead scores with a persisted, human-readable factor breakdown
 - Campaign recipient creation and dispatch that never sends to suppressed leads
 - Deterministic reply classification; opt-outs suppress immediately and positive/objection replies
@@ -61,16 +62,23 @@ scheme.
 1. `POST /api/auth/register` with `{"email":"rep@example.test","password":"at-least-8-chars"}`
 2. `POST /api/workspaces` with `{"name":"Sales"}`
 3. `POST /api/workspaces/{workspace_id}/discover` with `{"query":"B2B SaaS","limit":5}`
-4. Optionally `POST /api/workspaces/{workspace_id}/leads/{lead_id}/enrich`
-5. `POST /api/workspaces/{workspace_id}/campaigns` with a name and `lead_ids`
-6. Review a sequence draft at `GET /api/workspaces/{workspace_id}/campaigns/{campaign_id}`
-7. `POST /api/workspaces/{workspace_id}/campaigns/{campaign_id}/dispatch`
-8. Send incoming content to `POST /api/workspaces/{workspace_id}/replies`.
+4. Or import a UTF-8 CSV at `POST /api/workspaces/{workspace_id}/leads/import` as multipart
+   form data. Supply `file` (a `.csv` containing at least `email`), an absolute HTTP(S)
+   `source_url`, and optional `query`/`icp`; optional `confidence` is 0–100.
+   Uploads are UTF-8 only and limited to 2 MiB.
+5. Optionally `POST /api/workspaces/{workspace_id}/leads/{lead_id}/enrich`
+6. `POST /api/workspaces/{workspace_id}/campaigns` with a name and `lead_ids`
+7. Review a sequence draft at `GET /api/workspaces/{workspace_id}/campaigns/{campaign_id}`
+8. `POST /api/workspaces/{workspace_id}/campaigns/{campaign_id}/dispatch`
+9. Send incoming content to `POST /api/workspaces/{workspace_id}/replies`.
 
 `GET /api/workspaces/{workspace_id}/leads` exposes each lead's provenance, score, and score
 explanation. Suppress a lead using
 `POST /api/workspaces/{workspace_id}/leads/{lead_id}/suppress`; suppression is checked both while
 creating recipients and immediately before mock dispatch.
+Imports never fetch the supplied URL or create leads not present in the uploaded file. Emails are
+normalized before storage and deduplicated within the upload and workspace; the normalized company
+domain is retained in provenance for traceability.
 
 Replies are deterministically classified as interested, meeting requested, pricing requested, more
 information, follow up later, not interested, unsubscribe, out of office, or unknown. Actionable

@@ -42,6 +42,79 @@ def test_workspace_isolation_and_mock_discovery_provenance(client):
     assert denied.status_code == 404
 
 
+def test_csv_import_preserves_internal_provenance_and_normalizes_deduplication(client):
+    headers = auth_headers(client, "importer@example.test")
+    workspace_id = create_workspace(client, headers)
+    csv_data = (
+        "first_name,last_name,email,company,job_title,website,confidence\n"
+        "Ada,Lovelace, ADA@EXAMPLE.COM ,Example,CTO,HTTPS://Example.COM/team,86\n"
+        "Duplicate,Ada,ada@example.com,Example,CTO,https://example.com,77\n"
+        "Grace,Hopper,grace@another.example,Another,VP Engineering,,92\n"
+    )
+    imported = client.post(
+        f"/api/workspaces/{workspace_id}/leads/import",
+        headers=headers,
+        data={
+            "source_url": "https://intranet.example.test/approved/leads.csv",
+            "query": "B2B SaaS",
+            "icp": "Engineering leaders",
+        },
+        files={"file": ("leads.csv", csv_data, "text/csv")},
+    )
+
+    assert imported.status_code == 200
+    payload = imported.json()
+    assert payload["provider"] == "internal-csv"
+    assert (payload["created"], payload["existing"]) == (2, 1)
+    assert len(payload["leads"]) == 2
+    ada = payload["leads"][0]
+    assert ada["email"] == "ada@example.com"
+    assert ada["confidence"] == 86
+    assert ada["provenance"][0] == {
+        "provider": "internal-csv",
+        "source_url": "https://intranet.example.test/approved/leads.csv",
+        "source_record_id": ada["source_record_id"],
+        "normalized_email": "ada@example.com",
+        "normalized_domain": "example.com",
+        "confidence": 86,
+        "row_number": 2,
+        "query": "B2B SaaS",
+        "icp": "Engineering leaders",
+        "approved_internal_source": True,
+    }
+
+    repeated = client.post(
+        f"/api/workspaces/{workspace_id}/leads/import",
+        headers=headers,
+        data={"source_url": "https://intranet.example.test/approved/leads.csv"},
+        files={"file": ("leads.csv", csv_data, "text/csv")},
+    )
+    assert repeated.status_code == 200
+    assert (repeated.json()["created"], repeated.json()["existing"]) == (0, 3)
+
+
+def test_csv_import_rejects_invalid_data_without_creating_leads(client):
+    headers = auth_headers(client, "invalid-import@example.test")
+    workspace_id = create_workspace(client, headers)
+    response = client.post(
+        f"/api/workspaces/{workspace_id}/leads/import",
+        headers=headers,
+        data={"source_url": "ftp://intranet.example.test/leads.csv"},
+        files={"file": ("leads.csv", "email\nnot-an-email\n", "text/csv")},
+    )
+    assert response.status_code == 422
+    assert client.get(f"/api/workspaces/{workspace_id}/leads", headers=headers).json() == []
+
+    ragged = client.post(
+        f"/api/workspaces/{workspace_id}/leads/import",
+        headers=headers,
+        data={"source_url": "https://intranet.example.test/leads.csv"},
+        files={"file": ("leads.csv", "email\nvalid@example.test,unexpected\n", "text/csv")},
+    )
+    assert ragged.status_code == 422
+    assert client.get(f"/api/workspaces/{workspace_id}/leads", headers=headers).json() == []
+
+
 def test_suppression_is_enforced_and_replies_schedule_followups(client):
     headers = auth_headers(client, "sales@example.test")
     workspace_id = create_workspace(client, headers)
