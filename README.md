@@ -43,6 +43,16 @@ docker compose up --build
 Compose uses example development credentials only. Set a unique `JWT_SECRET` and real database
 credentials before any non-local deployment.
 
+## Production deployment
+
+Set `ENVIRONMENT=production`, a PostgreSQL `DATABASE_URL`, and a unique `JWT_SECRET` with at least
+32 characters through your deployment platform's secret manager. The application refuses to start
+in production with SQLite, a default secret, or a non-positive token lifetime. Use a managed
+PostgreSQL database with backups and TLS, terminate HTTPS at a trusted reverse proxy, and run
+database migrations through your deployment process before rolling out application instances.
+Set `CORS_ORIGINS` to your exact frontend origins (comma-separated); wildcards are rejected in
+production. `/health` verifies database connectivity and returns `503` when it is unavailable.
+
 ## API workflow
 
 All endpoints below except registration/login need an `Authorization` header using the JWT bearer

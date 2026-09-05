@@ -1,3 +1,6 @@
+import pytest
+
+
 def auth_headers(client, email: str) -> dict:
     response = client.post(
         "/api/auth/register", json={"email": email, "password": "correct-horse-battery"}
@@ -131,3 +134,21 @@ def test_campaign_is_workspace_isolated_and_reply_intent_is_specific(client):
         f"/api/workspaces/{workspace_id}/campaigns/{campaign['id']}", headers=outsider_headers
     )
     assert denied.status_code == 404
+
+
+def test_production_configuration_rejects_insecure_defaults(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "ENVIRONMENT", "production")
+    monkeypatch.setattr(config, "DATABASE_URL", "sqlite:///./sales_agent.db")
+    with pytest.raises(RuntimeError, match="PostgreSQL"):
+        config.validate_runtime_config()
+
+
+def test_health_reports_database_and_response_is_hardened(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "database": "connected"}
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["cache-control"] == "no-store"
