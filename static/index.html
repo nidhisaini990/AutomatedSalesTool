@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Sales Agent MVP</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { max-width: 850px; margin: 3rem auto; padding: 0 1rem; background: #111827; color: #e5e7eb; }
+      section { background: #1f2937; padding: 1.25rem; border-radius: .6rem; margin: 1rem 0; }
+      input, button { box-sizing: border-box; padding: .65rem; border-radius: .35rem; border: 1px solid #4b5563; }
+      input { width: 100%; margin: .3rem 0 .75rem; background: #111827; color: inherit; }
+      button { background: #2563eb; color: white; cursor: pointer; }
+      code, pre { background: #030712; padding: .75rem; display: block; overflow: auto; border-radius: .35rem; }
+      .notice { color: #fbbf24; } .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>AI Sales Agent MVP</h1>
+    <p class="notice">All discovery, enrichment, and email activity below is local mock data. No provider calls are made.</p>
+
+    <section id="auth">
+      <h2>Create account or sign in</h2>
+      <label>Email <input id="email" type="email" value="demo@example.test"></label>
+      <label>Password <input id="password" type="password" value="demo-password"></label>
+      <button onclick="authenticate('register')">Register</button>
+      <button onclick="authenticate('login')">Log in</button>
+    </section>
+
+    <section id="workspace" class="hidden">
+      <h2>Workspace</h2>
+      <label>Name <input id="workspace-name" value="Demo workspace"></label>
+      <button onclick="createWorkspace()">Create workspace</button>
+      <p id="workspace-status"></p>
+    </section>
+
+    <section id="discovery" class="hidden">
+      <h2>Discover mock leads</h2>
+      <label>Ideal customer profile <input id="query" value="B2B SaaS"></label>
+      <button onclick="discover()">Discover</button>
+      <pre id="results">Create a workspace to begin.</pre>
+    </section>
+
+    <script>
+      let token = localStorage.getItem("sales-agent-token");
+      let workspaceId = localStorage.getItem("sales-agent-workspace");
+      const headers = () => ({
+        "Content-Type": "application/json",
+        Authorization: ["Bearer", token].join(" ")
+      });
+      const show = id => document.getElementById(id).classList.remove("hidden");
+      if (token) show("workspace");
+      if (workspaceId) { show("discovery"); document.getElementById("workspace-status").textContent = `Active workspace: ${workspaceId}`; }
+
+      async function request(path, options = {}) {
+        const response = await fetch(`/api${path}`, options);
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || "Request failed");
+        return body;
+      }
+      async function authenticate(action) {
+        try {
+          const data = await request(`/auth/${action}`, { method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ email: email.value, password: password.value }) });
+          token = data.access_token; localStorage.setItem("sales-agent-token", token); show("workspace");
+        } catch (error) { alert(error.message); }
+      }
+      async function createWorkspace() {
+        try {
+          const data = await request("/workspaces", { method: "POST", headers: headers(),
+            body: JSON.stringify({ name: document.getElementById("workspace-name").value }) });
+          workspaceId = data.id; localStorage.setItem("sales-agent-workspace", workspaceId);
+          document.getElementById("workspace-status").textContent = `Active workspace: ${workspaceId}`; show("discovery");
+        } catch (error) { alert(error.message); }
+      }
+      async function discover() {
+        try {
+          const data = await request(`/workspaces/${workspaceId}/discover`, { method: "POST", headers: headers(),
+            body: JSON.stringify({ query: document.getElementById("query").value, limit: 5 }) });
+          document.getElementById("results").textContent = JSON.stringify(data, null, 2);
+        } catch (error) { alert(error.message); }
+      }
+    </script>
+  </body>
+</html>
