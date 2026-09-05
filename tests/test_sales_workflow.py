@@ -225,3 +225,33 @@ def test_health_reports_database_and_response_is_hardened(client):
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_icp_extraction_is_workspace_isolated_and_email_dispatch_can_be_disabled(client, monkeypatch):
+    headers = auth_headers(client, "icp-owner@example.test")
+    workspace_id = create_workspace(client, headers)
+    extracted = client.post(
+        f"/api/workspaces/{workspace_id}/icp/extract",
+        headers=headers,
+        json={"query": "SaaS CTOs in London excluding retail"},
+    )
+    assert extracted.status_code == 200
+    assert extracted.json()["criteria"]["industries"] == ["saas"]
+    assert extracted.json()["criteria"]["decision_maker_titles"] == ["CTO"]
+    assert extracted.json()["criteria"]["negative_filters"] == ["retail"]
+
+    lead = client.post(
+        f"/api/workspaces/{workspace_id}/discover",
+        headers=headers,
+        json={"query": "software", "limit": 1},
+    ).json()["leads"][0]
+    campaign = client.post(
+        f"/api/workspaces/{workspace_id}/campaigns",
+        headers=headers,
+        json={"name": "Approval required", "lead_ids": [lead["id"]]},
+    ).json()["campaign"]
+    monkeypatch.setattr("app.api.EMAIL_SENDING_ENABLED", False)
+    dispatch = client.post(
+        f"/api/workspaces/{workspace_id}/campaigns/{campaign['id']}/dispatch", headers=headers
+    )
+    assert dispatch.status_code == 409

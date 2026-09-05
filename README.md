@@ -61,15 +61,16 @@ scheme.
 
 1. `POST /api/auth/register` with `{"email":"rep@example.test","password":"at-least-8-chars"}`
 2. `POST /api/workspaces` with `{"name":"Sales"}`
-3. `POST /api/workspaces/{workspace_id}/discover` with `{"query":"B2B SaaS","limit":5}`
+3. Review editable query criteria at `POST /api/workspaces/{workspace_id}/icp/extract` with
+   `{"query":"B2B SaaS CTOs in London"}`
 4. Or import a UTF-8 CSV at `POST /api/workspaces/{workspace_id}/leads/import` as multipart
    form data. Supply `file` (a `.csv` containing at least `email`), an absolute HTTP(S)
    `source_url`, and optional `query`/`icp`; optional `confidence` is 0–100.
    Uploads are UTF-8 only and limited to 2 MiB.
-5. Optionally `POST /api/workspaces/{workspace_id}/leads/{lead_id}/enrich`
-6. `POST /api/workspaces/{workspace_id}/campaigns` with a name and `lead_ids`
-7. Review a sequence draft at `GET /api/workspaces/{workspace_id}/campaigns/{campaign_id}`
-8. `POST /api/workspaces/{workspace_id}/campaigns/{campaign_id}/dispatch`
+5. `POST /api/workspaces/{workspace_id}/discover` remains available for local mock demonstrations.
+6. Optionally `POST /api/workspaces/{workspace_id}/leads/{lead_id}/enrich`
+7. `POST /api/workspaces/{workspace_id}/campaigns` with a name and `lead_ids`
+8. Review a sequence draft at `GET /api/workspaces/{workspace_id}/campaigns/{campaign_id}`
 9. Send incoming content to `POST /api/workspaces/{workspace_id}/replies`.
 
 `GET /api/workspaces/{workspace_id}/leads` exposes each lead's provenance, score, and score
@@ -79,6 +80,8 @@ creating recipients and immediately before mock dispatch.
 Imports never fetch the supplied URL or create leads not present in the uploaded file. Emails are
 normalized before storage and deduplicated within the upload and workspace; the normalized company
 domain is retained in provenance for traceability.
+Email dispatch is disabled by default (`EMAIL_SENDING_ENABLED=false`). Enable it only after an
+authorized email provider and campaign approval workflow are configured.
 
 Replies are deterministically classified as interested, meeting requested, pricing requested, more
 information, follow up later, not interested, unsubscribe, out of office, or unknown. Actionable

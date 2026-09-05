@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.config import EMAIL_SENDING_ENABLED
 from app.models import (
     Campaign,
     CampaignRecipient,
@@ -28,6 +29,7 @@ from app.providers import (
     MockDiscoveryProvider,
     MockEmailProvider,
     MockEnrichmentProvider,
+    extract_icp_criteria,
     provenance_event,
 )
 from app.schemas import (
@@ -38,6 +40,8 @@ from app.schemas import (
     DiscoveryOut,
     DispatchOut,
     EnrichmentOut,
+    ICPExtractOut,
+    ICPExtractRequest,
     FollowUpCreate,
     FollowUpOut,
     LeadOut,
@@ -181,6 +185,18 @@ def list_workspaces(user: User = Depends(current_user), db: Session = Depends(ge
             .order_by(Workspace.created_at.desc())
         )
     )
+
+
+@router.post("/workspaces/{workspace_id}/icp/extract", response_model=ICPExtractOut)
+def extract_icp(
+    workspace_id: str,
+    payload: ICPExtractRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ICPExtractOut:
+    workspace_for_user(workspace_id, user, db)
+    query = payload.query.strip()
+    return ICPExtractOut(query=query, criteria=extract_icp_criteria(query))
 
 
 @router.post("/workspaces/{workspace_id}/discover", response_model=DiscoveryOut)
@@ -527,6 +543,11 @@ def dispatch_campaign(
     db: Session = Depends(get_db),
 ) -> DispatchOut:
     workspace = workspace_for_user(workspace_id, user, db)
+    if not EMAIL_SENDING_ENABLED:
+        raise HTTPException(
+            status_code=409,
+            detail="Email sending is disabled until an authorized email account and approval workflow are configured",
+        )
     campaign = db.get(Campaign, campaign_id)
     if campaign is None or campaign.workspace_id != workspace.id:
         raise HTTPException(status_code=404, detail="Campaign not found")

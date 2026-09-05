@@ -15,6 +15,7 @@ DATABASE_URL = database_url()
 JWT_SECRET = os.getenv("JWT_SECRET", "development-only-change-me")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+EMAIL_SENDING_ENABLED = os.getenv("EMAIL_SENDING_ENABLED", "false").lower() == "true"
 CORS_ORIGINS = tuple(
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")

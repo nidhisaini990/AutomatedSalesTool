@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Protocol
+import re
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,33 @@ class EmailProvider(Protocol):
     source_name: str
 
     def send(self, *, to: str, subject: str, body: str) -> str: ...
+
+
+def extract_icp_criteria(query: str) -> dict[str, list[str]]:
+    """Produce editable, conservative filters without claiming external knowledge."""
+    value = query.strip()
+    lowered = value.lower()
+    locations = re.findall(r"\b(?:in|based in)\s+([A-Za-z][A-Za-z .-]{1,40})", value, re.I)
+    titles = [
+        title
+        for title in ("CEO", "CTO", "CFO", "COO", "VP", "director", "head of")
+        if title.lower() in lowered
+    ]
+    exclusions = re.findall(r"\b(?:not|excluding|except)\s+([A-Za-z][A-Za-z .-]{1,40})", value, re.I)
+    size = re.findall(r"\b\d{1,6}\s*(?:-|to)\s*\d{1,6}\s*(?:employees?|people)\b", lowered)
+    negative_filters = [item.strip().rstrip(".,") for item in exclusions]
+    return {
+        "industries": [
+            item
+            for item in ("software", "saas", "healthcare", "finance", "retail")
+            if item in lowered and item not in negative_filters
+        ],
+        "locations": [location.strip().rstrip(".,") for location in locations],
+        "employee_size": size,
+        "decision_maker_titles": titles,
+        "keywords": [value],
+        "negative_filters": negative_filters,
+    }
 
 
 class MockDiscoveryProvider:

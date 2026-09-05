@@ -41,6 +41,15 @@ class DiscoverRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=25)
 
 
+class ICPExtractRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=500)
+
+
+class ICPExtractOut(BaseModel):
+    query: str
+    criteria: dict[str, list[str]]
+
+
 class LeadOut(APIModel):
     id: str
     workspace_id: str
