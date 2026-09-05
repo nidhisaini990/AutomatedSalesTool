@@ -31,10 +31,18 @@ def classify_reply(text: str) -> tuple[str, int, str]:
     value = text.lower()
     if any(term in value for term in ("unsubscribe", "remove me", "stop emailing", "opt out")):
         return "unsubscribe", 99, "Matched an explicit opt-out request."
+    if any(term in value for term in ("book a meeting", "schedule a meeting", "schedule a call")):
+        return "meeting_requested", 94, "Matched a request to schedule a meeting."
+    if any(term in value for term in ("pricing", "price list", "how much", "cost")):
+        return "pricing_requested", 90, "Matched a request for pricing information."
+    if any(term in value for term in ("more information", "send information", "learn more")):
+        return "more_information", 84, "Matched a request for more information."
+    if any(term in value for term in ("follow up later", "reach out later", "check back")):
+        return "follow_up_later", 86, "Matched a request to follow up later."
     if any(term in value for term in ("not interested", "no thanks", "don't contact")):
-        return "objection", 93, "Matched a clear negative-interest phrase."
+        return "not_interested", 93, "Matched a clear negative-interest phrase."
     if any(term in value for term in ("out of office", "away until", "automatic reply")):
         return "out_of_office", 96, "Matched an automated absence phrase."
     if any(term in value for term in ("interested", "sounds good", "book a call", "let's talk")):
         return "interested", 91, "Matched a positive-interest phrase."
-    return "neutral", 55, "No deterministic keyword rule matched; manual review is recommended."
+    return "unknown", 55, "No deterministic keyword rule matched; manual review is recommended."

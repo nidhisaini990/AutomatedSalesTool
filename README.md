@@ -53,13 +53,18 @@ scheme.
 3. `POST /api/workspaces/{workspace_id}/discover` with `{"query":"B2B SaaS","limit":5}`
 4. Optionally `POST /api/workspaces/{workspace_id}/leads/{lead_id}/enrich`
 5. `POST /api/workspaces/{workspace_id}/campaigns` with a name and `lead_ids`
-6. `POST /api/workspaces/{workspace_id}/campaigns/{campaign_id}/dispatch`
-7. Send incoming content to `POST /api/workspaces/{workspace_id}/replies`.
+6. Review a sequence draft at `GET /api/workspaces/{workspace_id}/campaigns/{campaign_id}`
+7. `POST /api/workspaces/{workspace_id}/campaigns/{campaign_id}/dispatch`
+8. Send incoming content to `POST /api/workspaces/{workspace_id}/replies`.
 
 `GET /api/workspaces/{workspace_id}/leads` exposes each lead's provenance, score, and score
 explanation. Suppress a lead using
 `POST /api/workspaces/{workspace_id}/leads/{lead_id}/suppress`; suppression is checked both while
 creating recipients and immediately before mock dispatch.
+
+Replies are deterministically classified as interested, meeting requested, pricing requested, more
+information, follow up later, not interested, unsubscribe, out of office, or unknown. Actionable
+positive replies schedule a follow-up; unsubscribe replies suppress the lead immediately.
 
 ## Test
 

@@ -333,6 +333,20 @@ def list_campaigns(
     )
 
 
+@router.get("/workspaces/{workspace_id}/campaigns/{campaign_id}", response_model=CampaignOut)
+def get_campaign(
+    workspace_id: str,
+    campaign_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Campaign:
+    workspace = workspace_for_user(workspace_id, user, db)
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None or campaign.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return campaign
+
+
 @router.post("/workspaces/{workspace_id}/campaigns/{campaign_id}/dispatch", response_model=DispatchOut)
 def dispatch_campaign(
     workspace_id: str,
@@ -403,7 +417,13 @@ def create_reply(
     if classification == "unsubscribe":
         lead.suppressed_at = utcnow()
         lead.suppression_reason = "Reply classified as unsubscribe"
-    elif classification in {"interested", "objection"}:
+    elif classification in {
+        "interested",
+        "meeting_requested",
+        "pricing_requested",
+        "more_information",
+        "follow_up_later",
+    }:
         followup = FollowUp(
             workspace_id=workspace_id,
             lead_id=lead.id,

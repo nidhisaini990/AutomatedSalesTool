@@ -95,3 +95,39 @@ def test_suppression_is_enforced_and_replies_schedule_followups(client):
     )
     assert opt_out.status_code == 200
     assert opt_out.json()["lead_suppressed"] is True
+
+
+def test_campaign_is_workspace_isolated_and_reply_intent_is_specific(client):
+    owner_headers = auth_headers(client, "campaign-owner@example.test")
+    workspace_id = create_workspace(client, owner_headers)
+    lead = client.post(
+        f"/api/workspaces/{workspace_id}/discover",
+        headers=owner_headers,
+        json={"query": "software", "limit": 1},
+    ).json()["leads"][0]
+    campaign = client.post(
+        f"/api/workspaces/{workspace_id}/campaigns",
+        headers=owner_headers,
+        json={"name": "Review me", "lead_ids": [lead["id"]]},
+    ).json()["campaign"]
+
+    detail = client.get(
+        f"/api/workspaces/{workspace_id}/campaigns/{campaign['id']}", headers=owner_headers
+    )
+    assert detail.status_code == 200
+    assert detail.json()["id"] == campaign["id"]
+
+    reply = client.post(
+        f"/api/workspaces/{workspace_id}/replies",
+        headers=owner_headers,
+        json={"lead_id": lead["id"], "text": "Can you send pricing?"},
+    )
+    assert reply.status_code == 200
+    assert reply.json()["reply"]["classification"] == "pricing_requested"
+    assert reply.json()["followup_id"]
+
+    outsider_headers = auth_headers(client, "campaign-outsider@example.test")
+    denied = client.get(
+        f"/api/workspaces/{workspace_id}/campaigns/{campaign['id']}", headers=outsider_headers
+    )
+    assert denied.status_code == 404
