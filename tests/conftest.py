@@ -2,6 +2,7 @@ import os
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_sales_agent.db"
 os.environ["JWT_SECRET"] = "test-only-signing-key"
+os.environ["EMAIL_SENDING_ENABLED"] = "true"
 
 import pytest
 from fastapi.testclient import TestClient

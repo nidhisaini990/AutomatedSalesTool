@@ -73,6 +73,15 @@ class Lead(Timestamped, Base):
     suppressed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     suppression_reason: Mapped[str | None] = mapped_column(String(300))
 
+    @property
+    def confidence(self) -> int:
+        """Return source confidence persisted with lead provenance."""
+        for event in reversed(self.provenance):
+            value = event.get("confidence")
+            if isinstance(value, int) and 0 <= value <= 100:
+                return value
+        return 100
+
 
 class Campaign(Timestamped, Base):
     __tablename__ = "campaigns"
